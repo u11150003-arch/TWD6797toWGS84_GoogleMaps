@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>台灣坐標轉 Google Maps (截圖精確對照版)</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft JhengHei", sans-serif;
+      background: #f1f5f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #ffffff;
+      padding: 26px;
+      border-radius: 14px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 540px;
+    }
+    h2 {
+      margin-top: 0;
+      margin-bottom: 18px;
+      color: #0f172a;
+      font-size: 20px;
+      text-align: center;
+      font-weight: 700;
+    }
+    .form-group {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13.5px;
+      color: #334155;
+      font-weight: 600;
+    }
+    .label-badge {
+      display: inline-block;
+      background: #e0e7ff;
+      color: #3730a3;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 4px;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 15px;
+      box-sizing: border-box;
+      outline: none;
+    }
+    input:focus, select:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+    }
+    .row .form-group {
+      flex: 1;
+    }
+    .ocr-dropzone {
+      border: 2px dashed #94a3b8;
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+      margin-bottom: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .ocr-dropzone:hover {
+      border-color: #2563eb;
+      background: #eff6ff;
+    }
+    .ocr-dropzone p {
+      margin: 0;
+      font-size: 13px;
+      color: #64748b;
+    }
+    .ocr-dropzone .highlight {
+      font-weight: 700;
+      color: #2563eb;
+    }
+    #ocrStatus {
+      font-size: 12px;
+      color: #d97706;
+      margin-top: 6px;
+      font-weight: 600;
+      display: none;
+    }
+
+    /* 截圖專用放大對照區 */
+    .preview-box {
+      background: #eff6ff;
+      border: 1.5px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 14px;
+      display: none;
+    }
+    .preview-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1e40af;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .preview-img-wrap {
+      background: #ffffff;
+      border: 1px solid #93c5fd;
+      padding: 10px;
+      border-radius: 6px;
+      text-align: center;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow-x: auto;
+    }
+    .preview-img-wrap img {
+      max-width: 100%;
+      height: auto;
+      transform: scale(1.6);
+      transform-origin: center;
+      margin: 10px 0;
+      image-rendering: -webkit-optimize-contrast;
+      image-rendering: crisp-edges;
+    }
+
+    button.btn-convert {
+      width: 100%;
+      padding: 12px;
+      background: #2563eb;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button.btn-convert:hover {
+      background: #1d4ed8;
+    }
+    .result-box {
+      margin-top: 20px;
+      padding: 16px;
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      display: none;
+    }
+    .coord-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .coord-card {
+      background: #ffffff;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
+    }
+    .coord-card .title {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .coord-card .val {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+      font-family: Consolas, monospace;
+    }
+    .maps-section {
+      background: #ecfdf5;
+      border: 1.5px solid #a7f3d0;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+    .maps-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .maps-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #065f46;
+    }
+    .maps-val {
+      font-size: 16px;
+      font-weight: 800;
+      color: #064e3b;
+      font-family: Consolas, monospace;
+      margin-bottom: 10px;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+    }
+    .btn-action {
+      flex: 1;
+      padding: 9px;
+      font-size: 13.5px;
+      font-weight: 700;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+    }
+    .btn-copy {
+      background: #059669;
+      color: #fff;
+      border: none;
+    }
+    .btn-open {
+      background: #ffffff;
+      color: #1e293b;
+      border: 1.5px solid #cbd5e1;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h2>TWD67 / 97 轉 Google Maps 工具</h2>
+
+  <div class="form-group">
+    <label>1. 來源坐標系統</label>
+    <select id="sourceCrs" onchange="updateLabels()">
+      <option value="TWD97">TWD97 / 二度分帶 (EPSG:3826)</option>
+      <option value="TWD67">TWD67 / 二度分帶 (EPSG:3828)</option>
+    </select>
+  </div>
+
+  <div class="ocr-dropzone" id="dropArea" onclick="document.getElementById('fileInput').click()">
+    <p>📷 <span class="highlight">點此選擇截圖</span> 或直接按 <span class="highlight">Ctrl + V</span> 貼上</p>
+    <p style="font-size:11px; margin-top:3px;">支援 ArcMap 截圖自動辨識，並即時放大原圖供你核對</p>
+    <div id="ocrStatus">正在辨識圖片坐標中，請稍候...</div>
+    <input type="file" id="fileInput" accept="image/*" style="display:none;" onchange="handleFileSelect(event)">
+  </div>
+
+  <!-- 原始截圖精確對照預覽區 -->
+  <div class="preview-box" id="previewBox">
+    <div class="preview-title">
+      <span>📷 原始上傳截圖（放大對照，有誤可直接於下方手動修改）</span>
+      <span style="font-size:11px; color:#2563eb; cursor:pointer;" onclick="document.getElementById('fileInput').click()">重選圖片</span>
+    </div>
+    <div class="preview-img-wrap">
+      <img id="previewImg" src="" alt="原始截圖">
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="form-group">
+      <label id="labelX">TWD97 X 坐標 (橫坐標)<span class="label-badge">約6碼</span></label>
+      <input type="text" id="coordX" placeholder="例: 200879.873" oninput="convertCoordinates()">
+    </div>
+    <div class="form-group">
+      <label id="labelY">TWD97 Y 坐標 (縱坐標)<span class="label-badge">約7碼</span></label>
+      <input type="text" id="coordY" placeholder="例: 2618427.424" oninput="convertCoordinates()">
+    </div>
+  </div>
+
+  <button class="btn-convert" onclick="convertCoordinates()">一鍵轉換</button>
+
+  <div class="result-box" id="resultBox">
+    <div class="coord-grid">
+      <div class="coord-card">
+        <div class="title">WGS84 X 座標 (經度 Lon)</div>
+        <div class="val" id="valLon">--</div>
+      </div>
+      <div class="coord-card">
+        <div class="title">WGS84 Y 座標 (緯度 Lat)</div>
+        <div class="val" id="valLat">--</div>
+      </div>
+    </div>
+
+    <div class="maps-section">
+      <div class="maps-header">
+        <span class="maps-title">Google Maps 搜尋格式</span>
+        <span style="font-size:11px; color:#047857;">格式: 緯度, 經度</span>
+      </div>
+      <div class="maps-val" id="mapsFormatText">--</div>
+      <div class="actions">
+        <button class="btn-action btn-copy" id="copyBtn" onclick="copyResult()">一鍵複製格式</button>
+        <a class="btn-action btn-open" id="openMapsBtn" target="_blank" rel="noopener noreferrer">直接開啟 Google 地圖</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function updateLabels() {
+    const crs = document.getElementById('sourceCrs').value;
+    document.getElementById('labelX').innerHTML = `${crs} X 坐標 (橫坐標)<span class="label-badge">約6碼</span>`;
+    document.getElementById('labelY').innerHTML = `${crs} Y 坐標 (縱坐標)<span class="label-badge">約7碼</span>`;
+    convertCoordinates();
+  }
+
+  // 監聽 Ctrl + V
+  window.addEventListener('paste', function(e) {
+    const items = (e.clipboardData || window.clipboardData).items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        processImage(file);
+        break;
+      }
+    }
+  });
+
+  function handleFileSelect(e) {
+    if (e.target.files.length > 0) {
+      processImage(e.target.files[0]);
+    }
+  }
+
+  // 前處理：放大 4 倍並將字體平滑銳化
+  function preprocessImage(file) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = 4;
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = imgData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const lum = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+          const color = lum < 150 ? 0 : 255;
+          d[i] = d[i+1] = d[i+2] = color;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  async function processImage(file) {
+    const statusDiv = document.getElementById('ocrStatus');
+    const previewBox = document.getElementById('previewBox');
+    const previewImg = document.getElementById('previewImg');
+
+    // 顯示原始上傳圖片供直接肉眼比對
+    previewImg.src = URL.createObjectURL(file);
+    previewBox.style.display = 'block';
+
+    statusDiv.style.display = 'block';
+    statusDiv.innerText = "🔍 正在精確辨識字形與小數點...";
+
+    try {
+      const processedUrl = await preprocessImage(file);
+      const worker = await Tesseract.createWorker();
+      await worker.loadLanguage('eng');
+      await worker.initialize('eng');
+      
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789. ',
+        tessedit_pageseg_mode: '7'
+      });
+
+      const { data: { text } } = await worker.recognize(processedUrl);
+      await worker.terminate();
+
+      // 清理常見混淆
+      let raw = text.replace(/,/g, '').trim();
+
+      // 提取符合台灣坐標特徵的 X (6碼.小數) 與 Y (7碼.小數)
+      // 若小數點與整數被拆開，進行智慧縫合
+      let xMatch = raw.match(/(\d{6})(?:\s*\.?\s*(\d{1,4}))?/);
+      let yMatch = raw.match(/(\d{7})(?:\s*\.?\s*(\d{1,4}))?/);
+
+      if (xMatch && yMatch) {
+        const parsedX = xMatch[2] ? `xMatch[1].{xMatch[2]}` : xMatch[1];
+        const parsedY = yMatch[2] ? `yMatch[1].{yMatch[2]}` : yMatch[1];
+        
+        document.getElementById('coordX').value = parsedX;
+        document.getElementById('coordY').value = parsedY;
+        statusDiv.innerHTML = "✅ 辨識完成！請比對上方圖片確認數值。";
+        convertCoordinates();
+      } else {
+        // 退回通用數字提取
+        const fallback = raw.match(/\d+(?:\.\d+)?/g);
+        if (fallback && fallback.length >= 2) {
+          document.getElementById('coordX').value = fallback[0];
+          document.getElementById('coordY').value = fallback[1];
+          statusDiv.innerHTML = "⚠️ 辨識可能不完整，請依上方圖片核對修正。";
+          convertCoordinates();
+        } else {
+          statusDiv.innerHTML = "⚠️ 無法完全辨識，請依上方圖片手動輸入數值。";
+        }
+      }
+    } catch (err) {
+      statusDiv.innerText = "❌ 自動辨識受阻，請對照上方圖片手動輸入。";
+    }
+  }
+
+  // 100% 離線高斯投影反算 (TM2 -> WGS84)
+  function tm2ToWgs84(x, y, isTwd67) {
+    let curX = x, curY = y;
+    if (isTwd67) { curX += 828.0; curY -= 206.0; }
+
+    const a = 6378137.0, b = 6356752.314245;
+    const lon0 = 121.0 * Math.PI / 180.0, k0 = 0.9999, dx = 250000.0;
+    const e = Math.sqrt(1 - Math.pow(b / a, 2));
+    const e2 = Math.pow(e, 2) / (1 - Math.pow(e, 2));
+
+    const xDiff = curX - dx, M = curY / k0;
+    const mu = M / (a * (1 - Math.pow(e, 2)/4 - 3*Math.pow(e, 4)/64 - 5*Math.pow(e, 6)/256));
+    const e1 = (1 - Math.sqrt(1 - Math.pow(e, 2))) / (1 + Math.sqrt(1 - Math.pow(e, 2)));
+
+    const J1 = 3*e1/2 - 27*Math.pow(e1, 3)/32, J2 = 21*Math.pow(e1, 2)/16 - 55*Math.pow(e1, 4)/32;
+    const J3 = 151*Math.pow(e1, 3)/96, J4 = 1097*Math.pow(e1, 4)/512;
+    const fp = mu + J1*Math.sin(2*mu) + J2*Math.sin(4*mu) + J3*Math.sin(6*mu) + J4*Math.sin(8*mu);
+
+    const C1 = e2 * Math.pow(Math.cos(fp), 2), T1 = Math.pow(Math.tan(fp), 2);
+    const R1 = a * (1 - Math.pow(e, 2)) / Math.pow(1 - Math.pow(e * Math.sin(fp), 2), 1.5);
+    const N1 = a / Math.sqrt(1 - Math.pow(e * Math.sin(fp), 2));
+    const D = xDiff / (N1 * k0);
+
+    const Q1 = N1 * Math.tan(fp) / R1, Q2 = Math.pow(D, 2) / 2;
+    const Q3 = (5 + 3*T1 + 10*C1 - 4*Math.pow(C1, 2) - 9*e2) * Math.pow(D, 4) / 24;
+    const Q4 = (61 + 90*T1 + 298*C1 + 45*Math.pow(T1, 2) - 3*Math.pow(C1, 2) - 252*e2) * Math.pow(D, 6) / 720;
+    const latRad = fp - Q1 * (Q2 - Q3 + Q4);
+
+    const Q5 = D, Q6 = (1 + 2*T1 + C1) * Math.pow(D, 3) / 6;
+    const Q7 = (5 - 2*C1 + 28*T1 - 3*Math.pow(C1, 2) + 8*e2 + 24*Math.pow(T1, 2)) * Math.pow(D, 5) / 120;
+    const lonRad = lon0 + (Q5 - Q6 + Q7) / Math.cos(fp);
+
+    return {
+      lat: (latRad * 180.0 / Math.PI).toFixed(7),
+      lon: (lonRad * 180.0 / Math.PI).toFixed(7)
+    };
+  }
+
+  function convertCoordinates() {
+    const x = parseFloat(document.getElementById('coordX').value);
+    const y = parseFloat(document.getElementById('coordY').value);
+    const crsType = document.getElementById('sourceCrs').value;
+
+    if (isNaN(x) || isNaN(y)) {
+      document.getElementById('resultBox').style.display = 'none';
+      return;
+    }
+
+    const res = tm2ToWgs84(x, y, crsType === "TWD67");
+    document.getElementById('valLon').innerText = res.lon;
+    document.getElementById('valLat').innerText = res.lat;
+
+    const mapsText = `${res.lat}, ${res.lon}`;
+    document.getElementById('mapsFormatText').innerText = mapsText;
+    document.getElementById('openMapsBtn').href = `https://www.google.com/maps?q=res.lat,{res.lon}`;
+    document.getElementById('resultBox').style.display = 'block';
+  }
+
+  function copyResult() {
+    const text = document.getElementById('mapsFormatText').innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      const copyBtn = document.getElementById('copyBtn');
+      copyBtn.innerText = "已複製！";
+      setTimeout(() => { copyBtn.innerText = "一鍵複製格式"; }, 2000);
+    });
+  }
+</script>
+
+</body>
+</html>
