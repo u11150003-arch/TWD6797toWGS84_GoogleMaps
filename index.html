@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>台灣坐標轉 Google Maps (截圖精確對照版)</title>
+  <title>台灣坐標轉 Google Maps (全功能整合版)</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <style>
     body {
@@ -103,7 +103,7 @@
       display: none;
     }
 
-    /* 截圖專用放大對照區 */
+    /* 原始截圖對照放大區 */
     .preview-box {
       background: #eff6ff;
       border: 1.5px solid #bfdbfe;
@@ -242,28 +242,29 @@
 <body>
 
 <div class="card">
-  <h2>TWD67 / 97 轉 Google Maps 工具</h2>
+  <h2>TWD67 / 97 / WGS84 轉 Google Maps 工具</h2>
 
   <div class="form-group">
     <label>1. 來源坐標系統</label>
     <select id="sourceCrs" onchange="updateLabels()">
       <option value="TWD97">TWD97 / 二度分帶 (EPSG:3826)</option>
       <option value="TWD67">TWD67 / 二度分帶 (EPSG:3828)</option>
+      <option value="WGS84">WGS84 / 經緯度 (Decimal Degrees)</option>
     </select>
   </div>
 
   <div class="ocr-dropzone" id="dropArea" onclick="document.getElementById('fileInput').click()">
     <p>📷 <span class="highlight">點此選擇截圖</span> 或直接按 <span class="highlight">Ctrl + V</span> 貼上</p>
-    <p style="font-size:11px; margin-top:3px;">支援 ArcMap 截圖自動辨識，並即時放大原圖供你核對</p>
+    <p style="font-size:11px; margin-top:3px;">支援 ArcMap 截圖（公尺坐標或經緯度皆可）自動辨識與放大核對</p>
     <div id="ocrStatus">正在辨識圖片坐標中，請稍候...</div>
     <input type="file" id="fileInput" accept="image/*" style="display:none;" onchange="handleFileSelect(event)">
   </div>
 
-  <!-- 原始截圖精確對照預覽區 -->
+  <!-- 截圖對照放大預覽區 -->
   <div class="preview-box" id="previewBox">
     <div class="preview-title">
-      <span>📷 原始上傳截圖（放大對照，有誤可直接於下方手動修改）</span>
-      <span style="font-size:11px; color:#2563eb; cursor:pointer;" onclick="document.getElementById('fileInput').click()">重選圖片</span>
+      <span>📷 原始截圖對照（若辨識有微小偏差，可直接於下方手動修正）</span>
+      <span style="font-size:11px; color:#2563eb; cursor:pointer;" onclick="document.getElementById('fileInput').click()">更換截圖</span>
     </div>
     <div class="preview-img-wrap">
       <img id="previewImg" src="" alt="原始截圖">
@@ -312,12 +313,21 @@
 <script>
   function updateLabels() {
     const crs = document.getElementById('sourceCrs').value;
-    document.getElementById('labelX').innerHTML = `${crs} X 坐標 (橫坐標)<span class="label-badge">約6碼</span>`;
-    document.getElementById('labelY').innerHTML = `${crs} Y 坐標 (縱坐標)<span class="label-badge">約7碼</span>`;
+    if (crs === 'WGS84') {
+      document.getElementById('labelX').innerHTML = `WGS84 X 座標 (經度 Lon)<span class="label-badge">約118~122度</span>`;
+      document.getElementById('labelY').innerHTML = `WGS84 Y 座標 (緯度 Lat)<span class="label-badge">約21~26度</span>`;
+      document.getElementById('coordX').placeholder = "例: 120.647";
+      document.getElementById('coordY').placeholder = "例: 22.869";
+    } else {
+      document.getElementById('labelX').innerHTML = `${crs} X 坐標 (橫坐標)<span class="label-badge">約6碼</span>`;
+      document.getElementById('labelY').innerHTML = `${crs} Y 坐標 (縱坐標)<span class="label-badge">約7碼</span>`;
+      document.getElementById('coordX').placeholder = "例: 200879.873";
+      document.getElementById('coordY').placeholder = "例: 2618427.424";
+    }
     convertCoordinates();
   }
 
-  // 監聽 Ctrl + V
+  // 監聽 Ctrl + V 貼上截圖
   window.addEventListener('paste', function(e) {
     const items = (e.clipboardData || window.clipboardData).items;
     for (let i = 0; i < items.length; i++) {
@@ -335,7 +345,7 @@
     }
   }
 
-  // 前處理：放大 4 倍並將字體平滑銳化
+  // 影像前處理（4倍放大與銳化灰階，防止小數點遺失）
   function preprocessImage(file) {
     return new Promise((resolve) => {
       const img = new Image();
@@ -367,7 +377,7 @@
     const previewBox = document.getElementById('previewBox');
     const previewImg = document.getElementById('previewImg');
 
-    // 顯示原始上傳圖片供直接肉眼比對
+    // 顯示原圖供肉眼比對
     previewImg.src = URL.createObjectURL(file);
     previewBox.style.display = 'block';
 
@@ -381,25 +391,46 @@
       await worker.initialize('eng');
       
       await worker.setParameters({
-        tessedit_char_whitelist: '0123456789. ',
+        tessedit_char_whitelist: '0123456789. MetersDecimalDegrees',
         tessedit_pageseg_mode: '7'
       });
 
       const { data: { text } } = await worker.recognize(processedUrl);
       await worker.terminate();
 
-      // 清理常見混淆
       let raw = text.replace(/,/g, '').trim();
 
-      // 提取符合台灣坐標特徵的 X (6碼.小數) 與 Y (7碼.小數)
-      // 若小數點與整數被拆開，進行智慧縫合
+      // 1. 先檢驗是否為 Decimal Degrees 經緯度 (特徵：第一組經度 118~123，第二組緯度 21~26)
+      let degMatch = raw.match(/(\d{2,3}(?:\.\d+)?)\s+(\d{2,3}(?:\.\d+)?)/);
+      if (degMatch) {
+        let v1 = parseFloat(degMatch[1]);
+        let v2 = parseFloat(degMatch[2]);
+        if ((v1 >= 118 && v1 <= 123) && (v2 >= 21 && v2 <= 27)) {
+          // 自動將選單切換至 WGS84
+          document.getElementById('sourceCrs').value = 'WGS84';
+          updateLabels();
+          document.getElementById('coordX').value = degMatch[1];
+          document.getElementById('coordY').value = degMatch[2];
+          statusDiv.innerHTML = "✅ 自動識別為 WGS84 經緯度！請核對上方圖片。";
+          convertCoordinates();
+          return;
+        }
+      }
+
+      // 2. 檢驗是否為台灣平面公尺坐標 (6碼 X 與 7碼 Y，智慧縫合分離的小數點)
       let xMatch = raw.match(/(\d{6})(?:\s*\.?\s*(\d{1,4}))?/);
       let yMatch = raw.match(/(\d{7})(?:\s*\.?\s*(\d{1,4}))?/);
 
       if (xMatch && yMatch) {
-        const parsedX = xMatch[2] ? `xMatch[1].{xMatch[2]}` : xMatch[1];
-        const parsedY = yMatch[2] ? `yMatch[1].{yMatch[2]}` : yMatch[1];
+        const parsedX = xMatch[2] ? `${xMatch[1]}.${xMatch[2]}` : xMatch[1];
+        const parsedY = yMatch[2] ? `${yMatch[1]}.${yMatch[2]}` : yMatch[1];
         
+        // 若當前誤留在 WGS84，自動切回 TWD97
+        if (document.getElementById('sourceCrs').value === 'WGS84') {
+          document.getElementById('sourceCrs').value = 'TWD97';
+          updateLabels();
+        }
+
         document.getElementById('coordX').value = parsedX;
         document.getElementById('coordY').value = parsedY;
         statusDiv.innerHTML = "✅ 辨識完成！請比對上方圖片確認數值。";
@@ -469,13 +500,26 @@
       return;
     }
 
-    const res = tm2ToWgs84(x, y, crsType === "TWD67");
-    document.getElementById('valLon').innerText = res.lon;
-    document.getElementById('valLat').innerText = res.lat;
+    let lat, lon;
 
-    const mapsText = `${res.lat}, ${res.lon}`;
+    if (crsType === "WGS84") {
+      // 來源直接是經緯度：X 是經度 Lon，Y 是緯度 Lat
+      lon = x.toFixed(7);
+      lat = y.toFixed(7);
+    } else {
+      // 來源是 TWD97 或 TWD67 平面公尺坐標
+      const res = tm2ToWgs84(x, y, crsType === "TWD67");
+      lon = res.lon;
+      lat = res.lat;
+    }
+
+    document.getElementById('valLon').innerText = lon;
+    document.getElementById('valLat').innerText = lat;
+
+    // Google Maps 搜尋格式：固定為「緯度, 經度」
+    const mapsText = `${lat}, ${lon}`;
     document.getElementById('mapsFormatText').innerText = mapsText;
-    document.getElementById('openMapsBtn').href = `https://www.google.com/maps?q=res.lat,{res.lon}`;
+    document.getElementById('openMapsBtn').href = `https://www.google.com/maps?q=${lat},${lon}`;
     document.getElementById('resultBox').style.display = 'block';
   }
 
